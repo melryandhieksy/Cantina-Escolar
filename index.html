@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Cantina Escolar 360 (Nuvem)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        .fade-in { animation: fadeIn 0.3s ease-in-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        .custom-scrollbar::-webkit-scrollbar { height: 8px; width: 8px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        #reader-video { width: 100%; border-radius: 1rem; overflow: hidden; background: #000; }
+        #reader-video video { object-fit: cover; }
+
+        /* Loader global */
+        #global-loader { backdrop-filter: blur(4px); }
+        .spinner { border: 4px solid rgba(255, 255, 255, 0.3); border-left-color: #10b981; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body class="bg-slate-50 min-h-screen text-slate-800 font-sans pb-10">
+
+    <!-- OVERLAY DE CARREGAMENTO GLOBAL -->
+    <div id="global-loader" class="fixed inset-0 bg-slate-900/80 z-[9999] hidden flex-col items-center justify-center fade-in">
+        <div class="spinner mb-4"></div>
+        <p id="loader-text" class="text-white font-bold tracking-wide">A sincronizar com a base de dados...</p>
+    </div>
+
+    <div id="toast-container" class="fixed top-4 right-4 z-[100] flex flex-col gap-2 pointer-events-none"></div>
+
+    <!-- CABEÇALHO GERAL -->
+    <header class="bg-emerald-600 text-white p-4 shadow-md flex justify-between items-center hidden sticky top-0 z-50" id="main-header">
+        <div class="flex items-center gap-2">
+            <i data-lucide="utensils" class="w-6 h-6"></i>
+            <h1 class="font-bold text-lg hidden sm:block">Cantina Escolar 360</h1>
+        </div>
+        <div class="flex items-center gap-4">
+            <div class="flex items-center gap-2 bg-emerald-700 px-3 py-1.5 rounded-full shadow-inner text-sm">
+                <span id="user-role-badge" class="font-bold text-emerald-200 text-xs uppercase"></span>
+                <span class="text-emerald-300">|</span>
+                <img id="user-avatar" src="" class="w-6 h-6 rounded-full object-cover bg-white">
+                <span id="user-greeting" class="font-medium"></span>
+            </div>
+            <button onclick="logout()" class="hover:bg-emerald-500 p-2 rounded-full transition bg-emerald-700" title="Sair do Sistema">
+                <i data-lucide="log-out" class="w-5 h-5"></i>
+            </button>
+        </div>
+    </header>
+
+    <main class="p-4 max-w-7xl mx-auto w-full" id="app-content">
+        
+        <!-- TELA DE LOGIN / CADASTRO -->
+        <div id="view-login" class="max-w-md mx-auto bg-white p-8 rounded-3xl shadow-xl mt-10 sm:mt-20 fade-in border border-slate-100 hidden">
+            <div class="text-center mb-8">
+                <div class="bg-emerald-100 text-emerald-600 p-4 rounded-2xl inline-flex mb-4 shadow-sm">
+                    <i data-lucide="school" class="w-12 h-12"></i>
+                </div>
+                <h2 class="text-2xl font-black text-slate-800">Acesso Integrado</h2>
+                <p class="text-slate-500 text-sm mt-1">Identifique-se para aceder ao portal</p>
+            </div>
+
+            <div class="flex p-1 bg-slate-100 rounded-xl mb-6">
+                <button id="tab-entrar" onclick="setModoAuth('login')" class="flex-1 py-2.5 rounded-lg font-bold transition shadow-sm bg-white text-emerald-600 text-sm">Entrar</button>
+                <button id="tab-cadastrar" onclick="setModoAuth('cadastro')" class="flex-1 py-2.5 rounded-lg font-bold transition text-slate-500 hover:text-slate-700 text-sm">Criar Conta</button>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-xs font-bold text-slate-500 mb-1 uppercase">O Seu Perfil</label>
+                    <select id="auth-role" onchange="renderAuthCampos()" class="w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 font-medium">
+                        <option value="aluno">👨‍🎓 Sou Aluno</option>
+                        <option value="staff">👩‍🏫 Professor / Coordenação / Sec.</option>
+                        <option value="admin">👨‍🍳 Funcionário da Cantina</option>
+                        <option value="diretor">👩‍💼 Diretoria</option>
+                    </select>
+                </div>
+                <div id="auth-campos" class="space-y-4"></div>
+                <button onclick="processarAuth()" id="btn-auth" class="w-full bg-emerald-600 text-white font-bold py-4 rounded-xl hover:bg-emerald-700 transition-all shadow-md flex justify-center items-center gap-2 mt-2">
+                    Aceder
+                </button>
+                <p id="msg-aprovacao" class="text-xs text-center text-orange-500 font-bold hidden mt-4 bg-orange-50 p-3 rounded-lg border border-orange-100">
+                    <i data-lucide="clock" class="inline w-4 h-4 mr-1 relative -top-0.5"></i> O seu registo está em análise pela diretoria.
+                </p>
+            </div>
+        </div>
+
+        <!-- VIEW: CANTINA (ADMINISTRADOR/FUNCIONÁRIO) -->
+        <div id="view-admin" class="hidden space-y-6 fade-in">
+            <h2 class="text-2xl font-bold flex items-center gap-2 text-slate-800"><i data-lucide="store" class="text-emerald-600"></i> Gestão da Cantina</h2>
+            
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-slate-100">
+                    <p class="text-xs font-bold text-slate-400 uppercase">Total de Alunos</p>
+                    <p class="text-3xl font-black text-slate-700" id="stat-total-alunos">0</p>
+                </div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-l-blue-500"><p class="text-xs font-bold text-slate-400 uppercase">Lanche Manhã</p><div class="mt-2 flex flex-col"><span class="text-emerald-600 font-bold text-sm"><i data-lucide="check" class="inline w-3 h-3"></i> <span id="stat-m-ok">0</span> Entregues</span><span class="text-orange-500 font-bold text-sm"><i data-lucide="clock" class="inline w-3 h-3"></i> <span id="stat-m-pending">0</span> Na Fila</span></div></div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-l-orange-500"><p class="text-xs font-bold text-slate-400 uppercase">Almoço</p><div class="mt-2 flex flex-col"><span class="text-emerald-600 font-bold text-sm"><i data-lucide="check" class="inline w-3 h-3"></i> <span id="stat-a-ok">0</span> Entregues</span><span class="text-orange-500 font-bold text-sm"><i data-lucide="clock" class="inline w-3 h-3"></i> <span id="stat-a-pending">0</span> Na Fila</span></div></div>
+                <div class="bg-white p-5 rounded-2xl shadow-sm border-l-4 border-l-purple-500"><p class="text-xs font-bold text-slate-400 uppercase">Lanche Tarde</p><div class="mt-2 flex flex-col"><span class="text-emerald-600 font-bold text-sm"><i data-lucide="check" class="inline w-3 h-3"></i> <span id="stat-t-ok">0</span> Entregues</span><span class="text-orange-500 font-bold text-sm"><i data-lucide="clock" class="inline w-3 h-3"></i> <span id="stat-t-pending">0</span> Na Fila</span></div></div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <button onclick="abrirScannerModal('aluno')" class="bg-emerald-600 text-white p-6 rounded-2xl shadow-sm hover:bg-emerald-700 transition flex items-center justify-center gap-4 group">
+                    <div class="bg-white/20 p-3 rounded-full group-hover:scale-110 transition"><i data-lucide="scan-line" class="w-8 h-8"></i></div>
+                    <div class="text-left"><span class="block font-black text-xl">Ler Alunos</span><span class="text-emerald-200 text-sm">Validar refeições dos estudantes</span></div>
+                </button>
+                <button onclick="abrirScannerModal('staff')" class="bg-indigo-600 text-white p-6 rounded-2xl shadow-sm hover:bg-indigo-700 transition flex items-center justify-center gap-4 group">
+                    <div class="bg-white/20 p-3 rounded-full group-hover:scale-110 transition"><i data-lucide="scan-face" class="w-8 h-8"></i></div>
+                    <div class="text-left"><span class="block font-black text-xl">Ler Equipa/Diretoria</span><span class="text-indigo-200 text-sm">Validar refeições dos servidores</span></div>
+                </button>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="font-bold flex items-center gap-2"><i data-lucide="users" class="text-emerald-600"></i> Fila de Alunos (Hoje)</h3>
+                        <button onclick="sincronizarBDTotal('cantina')" class="text-slate-400 hover:text-emerald-600 transition" title="Atualizar da Nuvem"><i data-lucide="refresh-cw"></i></button>
+                    </div>
+                    <div class="overflow-x-auto custom-scrollbar max-h-64"><table class="w-full text-sm text-left whitespace-nowrap"><tbody id="fila-alunos-list" class="divide-y divide-slate-100"></tbody></table></div>
+                </div>
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <div class="flex justify-between items-center mb-4"><h3 class="font-bold flex items-center gap-2"><i data-lucide="briefcase" class="text-indigo-600"></i> Fila Equipa/Diretoria</h3></div>
+                    <div class="overflow-x-auto custom-scrollbar max-h-64"><table class="w-full text-sm text-left whitespace-nowrap"><tbody id="fila-staff-list" class="divide-y divide-slate-100"></tbody></table></div>
+                </div>
+            </div>
+            
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <div class="flex justify-between items-center mb-4 border-b pb-4">
+                    <h3 class="font-bold flex items-center gap-2"><i data-lucide="calendar"></i> Cardápio Semanal</h3>
+                    <button onclick="toggleEdicaoCardapio()" class="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-200 transition flex items-center gap-2"><i data-lucide="edit-3" class="w-4 h-4"></i> <span class="btn-edit-text-class">Habilitar Edição</span></button>
+                </div>
+                <div class="flex gap-4 overflow-x-auto pb-4 custom-scrollbar" id="cardapio-admin-container"></div>
+            </div>
+        </div>
+
+        <!-- VIEW: DIRETORIA -->
+        <div id="view-diretor" class="hidden space-y-6 fade-in">
+            <div class="flex justify-between items-center">
+                <h2 class="text-2xl font-bold flex items-center gap-2 text-slate-800"><i data-lucide="shield-check" class="text-emerald-600"></i> Painel da Diretoria</h2>
+                <button onclick="sincronizarBDTotal('diretor')" class="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-200 transition flex items-center gap-2"><i data-lucide="cloud-download" class="w-4 h-4"></i> Sincronizar Nuvem</button>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <!-- Aprovações Separadas -->
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100 flex flex-col h-full max-h-[30rem]">
+                    <h3 class="font-bold flex items-center gap-2 mb-4 text-orange-600 border-b pb-2"><i data-lucide="user-check"></i> Aprovação de Registos</h3>
+                    <div class="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-6">
+                        <div><h4 class="text-sm font-bold text-slate-600 mb-2 flex items-center gap-1"><i data-lucide="graduation-cap" class="w-4 h-4"></i> Alunos</h4><div id="lista-aprovacoes-alunos" class="space-y-2"></div></div>
+                        <div><h4 class="text-sm font-bold text-slate-600 mb-2 flex items-center gap-1"><i data-lucide="book-open" class="w-4 h-4"></i> Equipa Escolar</h4><div id="lista-aprovacoes-staff" class="space-y-2"></div></div>
+                    </div>
+                </div>
+
+                <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                    <h3 class="font-bold flex items-center gap-2 mb-4 text-indigo-600 border-b pb-2"><i data-lucide="coffee"></i> Minhas Refeições (Gerar QR)</h3>
+                    <div class="grid grid-cols-3 gap-2" id="diretor-qr-buttons"></div>
+                    <div id="diretor-qr-display" class="mt-4 flex justify-center bg-slate-50 p-4 rounded-xl border border-slate-100 min-h-[200px] items-center"><span class="text-slate-400 text-sm font-medium">Selecione uma refeição acima</span></div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 gap-4">
+                    <div><h3 class="font-bold text-lg flex items-center gap-2"><i data-lucide="activity" class="text-blue-500"></i> Monitorização de Refeições (Hoje)</h3><p class="text-xs text-slate-500 mt-1">Acompanhe quem gerou e quem efetivamente comeu.</p></div>
+                    <div class="flex gap-2">
+                        <select id="filtro-turma-monitoramento" onchange="renderMonitoramentoDiretoria()" class="bg-slate-50 border border-slate-200 text-sm rounded-lg p-2 outline-none">
+                            <option value="todas">Todas as Turmas</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="flex gap-4 text-xs mb-4 bg-slate-50 p-3 rounded-lg border border-slate-100 overflow-x-auto">
+                    <span class="flex items-center gap-1 whitespace-nowrap"><div class="w-3 h-3 rounded-full bg-slate-200 border border-slate-300"></div> Não Gerou</span>
+                    <span class="flex items-center gap-1 whitespace-nowrap"><div class="w-3 h-3 rounded-full bg-orange-400 border border-orange-500 shadow-sm"></div> Gerou QR, na Fila</span>
+                    <span class="flex items-center gap-1 whitespace-nowrap"><div class="w-3 h-3 rounded-full bg-emerald-500 border border-emerald-600 shadow-sm"></div> Entregue</span>
+                </div>
+                <div class="overflow-x-auto custom-scrollbar">
+                    <table class="w-full text-sm text-left whitespace-nowrap border-collapse">
+                        <thead class="bg-slate-100 text-slate-600 font-bold">
+                            <tr><th class="p-3 rounded-tl-xl border-b border-slate-200">Aluno</th><th class="p-3 border-b border-slate-200">Turma</th><th class="p-3 text-center border-b border-slate-200">Lanche Manhã</th><th class="p-3 text-center border-b border-slate-200">Almoço</th><th class="p-3 text-center rounded-tr-xl border-b border-slate-200">Lanche Tarde</th></tr>
+                        </thead>
+                        <tbody id="monitoramento-list" class="divide-y divide-slate-100"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                 <div class="flex justify-between items-center mb-4 border-b pb-4">
+                    <h3 class="font-bold flex items-center gap-2"><i data-lucide="calendar"></i> Cardápio Semanal</h3>
+                    <button onclick="toggleEdicaoCardapio()" class="bg-slate-100 text-slate-600 px-4 py-2 rounded-lg text-sm font-bold hover:bg-slate-200 transition flex items-center gap-2"><i data-lucide="edit-3" class="w-4 h-4"></i> <span class="btn-edit-text-class">Habilitar Edição</span></button>
+                </div>
+                <div class="flex gap-4 overflow-x-auto pb-4 custom-scrollbar" id="cardapio-diretor-container"></div>
+            </div>
+        </div>
+
+        <!-- VIEW: ALUNOS & EQUIPE ESCOLAR -->
+        <div id="view-comum" class="hidden space-y-6 fade-in">
+            <div class="flex justify-between items-center">
+                <h2 id="titulo-view-comum" class="text-2xl font-bold flex items-center gap-2 text-slate-800"></h2>
+                <button onclick="sincronizarBDTotal('comum')" class="text-slate-400 hover:text-emerald-600 p-2" title="Atualizar Dados"><i data-lucide="refresh-cw"></i></button>
+            </div>
+            
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                <h3 class="text-lg font-bold mb-4 flex items-center gap-2"><i data-lucide="utensils-crossed" class="text-emerald-600"></i> Cardápio da Semana</h3>
+                <div class="flex gap-4 overflow-x-auto pb-4 custom-scrollbar" id="cardapio-comum-list"></div>
+            </div>
+
+            <div class="bg-white p-6 rounded-3xl shadow-sm border border-slate-100">
+                 <h3 class="text-lg font-bold mb-4 flex items-center gap-2"><i data-lucide="qr-code" class="text-blue-600"></i> As Minhas Refeições de Hoje</h3>
+                 <p class="text-sm text-slate-500 mb-6">Pode gerar o QR Code <b>apenas uma vez</b> para cada refeição.</p>
+                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6" id="qr-generator-container"></div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- MODAL DO SCANNER -->
+    <div id="modal-scanner" class="fixed inset-0 bg-slate-900/90 z-[200] hidden flex-col items-center justify-center p-4 fade-in backdrop-blur-sm">
+        <div class="w-full max-w-lg bg-white rounded-3xl overflow-hidden shadow-2xl flex flex-col">
+            <div class="p-4 bg-slate-800 text-white flex justify-between items-center">
+                <h3 class="font-bold text-lg flex items-center gap-2" id="scanner-modal-title"><i data-lucide="camera"></i> Leitor Ativo</h3>
+                <button onclick="fecharScannerModal()" class="bg-slate-700 hover:bg-red-500 p-2 rounded-full transition"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <div class="relative bg-black w-full flex-1 min-h-[300px] flex items-center justify-center">
+                <div id="reader-video" class="w-full h-full"></div>
+                <div id="scanner-loader" class="absolute inset-0 flex items-center justify-center text-white font-bold bg-black/50 z-10">A iniciar câmara...</div>
+            </div>
+            <div id="scanner-resultado" class="hidden absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-11/12 max-w-sm bg-white p-6 rounded-2xl text-center shadow-2xl z-20 fade-in border-4 border-emerald-500">
+                <img id="scan-foto" class="w-24 h-24 rounded-full mx-auto mb-3 border-4 border-slate-100 shadow-md object-cover bg-slate-200">
+                <p id="scan-nome" class="font-black text-xl text-slate-800 leading-tight mb-1"></p>
+                <p id="scan-detalhe" class="text-sm text-slate-500 font-medium mb-3"></p>
+                <div id="scan-badge" class="mt-2 text-sm font-black py-2 px-4 rounded-xl text-white block w-full uppercase tracking-wider"></div>
+            </div>
+            <div class="p-4 bg-slate-100 text-center text-sm font-medium text-slate-600" id="scanner-hint">Aponte a câmara para o QR Code.</div>
+        </div>
+    </div>
+
+    <script>
+        // ==========================================
+        // CONFIGURAÇÕES DA API E CONSTANTES
+        // ==========================================
+        const API_URL = "https://script.google.com/macros/s/AKfycbyGenqrvxJEbSL6r4SKL65xOr8sRsQVCOsMfDH3FGApF4G38tBufRLhO-CJ-9yxKGx1/exec";
+        
+        let currentUser = JSON.parse(localStorage.getItem('sessao_ativa'));
+        let modoAuthAtual = 'login';
+        let html5QrCode = null;
+        let scannerTargetRole = 'aluno'; 
+        let edicaoCardapioAtiva = false;
+        
+        const cardapioPadrao = {
+            1: { dia: "Segunda", m: "Farofa de cuscuz temperado com ovo e suco", a: "Arroz branco, escondidinho de carne moída, feijão", t: "Macarrão com carne moída" },
+            2: { dia: "Terça", m: "Pão com molho de frango", a: "Quibebe, arroz branco, frango assado", t: "Fruta fatiada (melancia)" },
+            3: { dia: "Quarta", m: "Chocolate quente cremoso", a: "Salada verde, baião de dois, bisteca", t: "Fruta fatiada (melão)" },
+            4: { dia: "Quinta", m: "Vitamina de abacate", a: "Salada simples, arroz branco, frango, feijão", t: "Farofa de cuscuz temperado e suco" },
+            5: { dia: "Sexta", m: "Sopa de macarrão com frango", a: "Salada crua, arroz branco, mão de vaca, pirão", t: "Banana + aveia em flocos + mel" }
+        };
+
+        let dbCache = { usuarios: [], gerados: [], escaneados: [], cardapio: JSON.parse(JSON.stringify(cardapioPadrao)) };
+
+        const turnosInfo = {
+            'manha': { label: 'Lanche Manhã', icon: 'coffee', color: 'blue' },
+            'almoco': { label: 'Almoço', icon: 'utensils', color: 'orange' },
+            'tarde': { label: 'Lanche Tarde', icon: 'apple', color: 'purple' }
+        };
+
+        // --- FUNÇÕES DE DATA BLINDADAS ---
+        function getHoje() {
+            const dt = new Date();
+            return ('0' + dt.getDate()).slice(-2) + '/' + ('0' + (dt.getMonth() + 1)).slice(-2) + '/' + dt.getFullYear();
+        }
+
+        function parseDataPlanilha(d) {
+            if(!d) return "";
+            const str = String(d);
+            if(str.includes("T") || str.includes("Z") || str.includes("GMT")) {
+                const dt = new Date(d);
+                return ('0' + dt.getDate()).slice(-2) + '/' + ('0' + (dt.getMonth() + 1)).slice(-2) + '/' + dt.getFullYear();
+            }
+            return str.trim();
+        }
+
+        // --- FUNÇÕES GERAIS / UI ---
+        function showLoader(msg) {
+            document.getElementById('loader-text').innerText = msg;
+            document.getElementById('global-loader').style.display = 'flex';
+        }
+        function hideLoader() { document.getElementById('global-loader').style.display = 'none'; }
+
+        function showToast(msg, type = 'info') {
+            const container = document.getElementById('toast-container');
+            const toast = document.createElement('div');
+            const bgClass = type === 'success' ? 'bg-emerald-600' : (type === 'error' ? 'bg-red-600' : 'bg-slate-800');
+            toast.className = `${bgClass} text-white px-5 py-3 rounded-xl shadow-xl text-sm font-bold fade-in`;
+            toast.innerText = msg;
+            container.appendChild(toast);
+            setTimeout(() => { toast.style.opacity = '0'; toast.style.transform = 'translateY(-10px)'; setTimeout(() => toast.remove(), 300); }, 3000);
+        }
+
+        async function apiPost(payload) {
+            try {
+                let res = await fetch(API_URL, { method: "POST", body: JSON.stringify(payload), headers: { "Content-Type": "text/plain;charset=utf-8" } });
+                return await res.json();
+            } catch(e) { return { sucesso: false, erro: e.message }; }
+        }
+
+        // --- NÚCLEO DO SISTEMA (SYNC DE DADOS E INIT) ---
+        async function sincronizarBDTotal(origemView = 'login') {
+            showLoader("A sincronizar com a base de dados (Nuvem)...");
+            try {
+                const reqs = await Promise.all([
+                    fetch(`${API_URL}?tabela=Usuarios`).then(r => r.json()),
+                    fetch(`${API_URL}?tabela=Gerados`).then(r => r.json()),
+                    fetch(`${API_URL}?tabela=Escaneados`).then(r => r.json()),
+                    fetch(`${API_URL}?tabela=Cardapio`).then(r => r.json())
+                ]);
+
+                // Helper para extrair dados sem quebrar o código mesmo se a planilha for limpa
+                const extrairDados = (req) => (req && req.sucesso && Array.isArray(req.dados) && req.dados.length > 1) ? req.dados.slice(1) : [];
+
+                dbCache.usuarios = extrairDados(reqs[0]).map(r => ({ ident: String(r[0]), nome: r[1], role: r[2], pass: String(r[3]), status: r[4], turma: r[5], cargo: r[6], foto: r[7] }));
+                dbCache.gerados = extrairDados(reqs[1]).map(r => ({ id: String(r[0]), turno: r[1], data: parseDataPlanilha(r[2]), hora: r[3], role: r[4] }));
+                dbCache.escaneados = extrairDados(reqs[2]).map(r => ({ id: String(r[0]), turno: r[1], data: parseDataPlanilha(r[2]), hora: r[3] }));
+                
+                const dCardapio = extrairDados(reqs[3]);
+                if(dCardapio.length > 0) {
+                    dbCache.cardapio = {};
+                    dCardapio.forEach(r => { dbCache.cardapio[r[0]] = { dia: r[1], m: r[2], a: r[3], t: r[4] }; });
+                } else {
+                    dbCache.cardapio = JSON.parse(JSON.stringify(cardapioPadrao));
+                }
+                
+                localStorage.setItem('cache_nuvem', JSON.stringify(dbCache));
+
+                if(origemView === 'login' && !currentUser) {
+                    document.getElementById('view-login').classList.remove('hidden');
+                } else if(currentUser) {
+                    atualizarViewsPeloRole();
+                }
+            } catch (e) {
+                console.error(e);
+                const cacheSalvo = localStorage.getItem('cache_nuvem');
+                if(cacheSalvo) {
+                    let parsed = JSON.parse(cacheSalvo);
+                    dbCache = { usuarios: parsed.usuarios || [], gerados: parsed.gerados || [], escaneados: parsed.escaneados || [], cardapio: parsed.cardapio || cardapioPadrao };
+                }
+                showToast("Modo Offline (Falha de Internet)", "error");
+                if(!currentUser) document.getElementById('view-login').classList.remove('hidden');
+                else atualizarViewsPeloRole();
+            }
+            hideLoader();
+        }
+
+        window.onload = () => {
+            lucide.createIcons();
+            sincronizarBDTotal('login').then(() => {
+                if(currentUser) finalizarLogin(false);
+                else renderAuthCampos();
+            });
+        };
+
+        // --- AUTH ---
+        function setModoAuth(modo) {
+            modoAuthAtual = modo;
+            const btnClassAtivo = "flex-1 py-2.5 rounded-lg font-bold transition shadow-sm bg-white text-emerald-600 text-sm";
+            const btnClassInativo = "flex-1 py-2.5 rounded-lg font-bold transition text-slate-500 hover:text-slate-700 text-sm";
+            document.getElementById('tab-entrar').className = modo === 'login' ? btnClassAtivo : btnClassInativo;
+            document.getElementById('tab-cadastrar').className = modo === 'cadastro' ? btnClassAtivo : btnClassInativo;
+            renderAuthCampos();
+        }
+
+        function renderAuthCampos() {
+            const role = document.getElementById('auth-role').value;
+            const container = document.getElementById('auth-campos');
+            document.getElementById('msg-aprovacao').classList.add('hidden');
+            let html = '';
+            const inputClass = "w-full p-3.5 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:ring-2 focus:ring-emerald-500 placeholder-slate-400 font-medium";
+
+            if(modoAuthAtual === 'cadastro') {
+                html += `<input type="text" id="auth-nome" placeholder="Nome Completo" class="${inputClass}">`;
+                if(role === 'aluno') {
+                    html += `<input type="number" id="auth-ident" placeholder="RA / Matrícula" class="${inputClass}">`;
+                    html += `<select id="auth-turma" class="${inputClass} text-slate-600 appearance-none">
+                            <option value="">Selecione a Turma...</option><option value="1º Ano A">1º Ano A</option><option value="1º Ano B">1º Ano B</option>
+                            <option value="2º Ano">2º Ano</option><option value="3º Ano A">3º Ano A</option><option value="3º Ano B">3º Ano B</option>
+                        </select>`;
+                } else if (role === 'staff') {
+                     html += `<input type="text" id="auth-ident" placeholder="NIF ou ID Servidor" class="${inputClass}">`;
+                     html += `<input type="text" id="auth-cargo" placeholder="Cargo (Ex: Prof. Matemática)" class="${inputClass}">`;
+                } else {
+                    html += `<input type="text" id="auth-ident" placeholder="ID Funcional" class="${inputClass}">`;
+                }
+            } else {
+                html += `<input type="text" id="auth-ident" placeholder="${role === 'aluno' ? 'O Seu RA' : 'O Seu ID / NIF'}" class="${inputClass}">`;
+            }
+            html += `<input type="password" id="auth-pass" placeholder="Palavra-passe" class="${inputClass}">`;
+            container.innerHTML = html;
+        }
+
+        async function processarAuth() {
+            const role = document.getElementById('auth-role').value;
+            const pass = document.getElementById('auth-pass').value;
+            const ident = document.getElementById('auth-ident').value;
+
+            if(!ident || !pass) return showToast("Preencha todos os campos.", "error");
+
+            if(modoAuthAtual === 'cadastro') {
+                const nome = document.getElementById('auth-nome').value;
+                if(!nome) return showToast("Nome é obrigatório.", "error");
+                if(dbCache.usuarios.find(u => String(u.ident) === String(ident))) return showToast("ID já registado!", "error");
+
+                let statusInicial = (role === 'aluno' || role === 'staff') ? 'pendente' : 'aprovado';
+                let turma = role === 'aluno' ? document.getElementById('auth-turma').value : "";
+                let cargo = role === 'staff' ? document.getElementById('auth-cargo').value : "";
+                let foto = `https://ui-avatars.com/api/?name=${encodeURIComponent(nome)}&background=random`;
+
+                showLoader("A criar conta na nuvem...");
+                const resposta = await apiPost({ acao: 'inserir', tabela: 'Usuarios', valores: [ident, nome, role, pass, statusInicial, turma, cargo, foto] });
+                hideLoader();
+
+                if(!resposta.sucesso) return showToast("Erro no servidor: " + resposta.erro, "error");
+
+                const novoUser = { ident, nome, role, pass, status: statusInicial, turma, cargo, foto };
+                dbCache.usuarios.push(novoUser);
+                
+                if(statusInicial === 'pendente') {
+                    document.getElementById('msg-aprovacao').classList.remove('hidden');
+                    showToast("Registo enviado! Aguarde aprovação.", "info");
+                    setModoAuth('login');
+                } else {
+                    currentUser = novoUser;
+                    localStorage.setItem('sessao_ativa', JSON.stringify(currentUser));
+                    finalizarLogin(true);
+                }
+            } else {
+                const user = dbCache.usuarios.find(u => String(u.ident) === String(ident) && u.pass === pass && u.role === role);
+                if(!user) return showToast("Credenciais inválidas.", "error");
+                if(user.status === 'pendente') {
+                    document.getElementById('msg-aprovacao').classList.remove('hidden');
+                    return showToast("Registo não aprovado pela diretoria.", "error");
+                }
+                currentUser = user;
+                localStorage.setItem('sessao_ativa', JSON.stringify(currentUser));
+                finalizarLogin(true);
+            }
+        }
+
+        function finalizarLogin(mostrarToast = false) {
+            document.getElementById('view-login').classList.add('hidden');
+            document.getElementById('main-header').classList.remove('hidden');
+            document.getElementById('user-greeting').innerText = currentUser.nome.split(' ')[0];
+            document.getElementById('user-avatar').src = currentUser.foto;
+            
+            const rolesLabels = { aluno: 'Aluno', admin: 'Cantina', diretor: 'Diretoria', staff: 'Equipa' };
+            document.getElementById('user-role-badge').innerText = rolesLabels[currentUser.role];
+
+            if(mostrarToast) showToast("Bem-vindo!", "success");
+            
+            // Segurança para garantir que modo edição inicia sempre desligado
+            edicaoCardapioAtiva = false; 
+            document.querySelectorAll(".btn-edit-text-class, #btn-edit-text").forEach(el => el.innerText = "Habilitar Edição");
+
+            atualizarViewsPeloRole();
+            lucide.createIcons();
+        }
+
+        function atualizarViewsPeloRole() {
+            ['view-admin', 'view-diretor', 'view-comum'].forEach(v => document.getElementById(v).classList.add('hidden'));
+
+            if(currentUser.role === 'admin') {
+                document.getElementById('view-admin').classList.remove('hidden');
+                renderCardapioGrid('cardapio-admin-container', true);
+                atualizarEstatisticasCantina();
+            } 
+            else if(currentUser.role === 'diretor') {
+                document.getElementById('view-diretor').classList.remove('hidden');
+                renderAprovacoesPendentes();
+                renderMonitoramentoDiretoria();
+                renderCardapioGrid('cardapio-diretor-container', true);
+                renderBotoesGeracaoQR('diretor-qr-buttons', 'diretor-qr-display');
+            }
+            else {
+                document.getElementById('view-comum').classList.remove('hidden');
+                document.getElementById('titulo-view-comum').innerHTML = currentUser.role === 'aluno' 
+                    ? `<i data-lucide="graduation-cap" class="text-emerald-600"></i> Portal do Aluno`
+                    : `<i data-lucide="book-open" class="text-indigo-600"></i> Portal do Servidor`;
+                
+                renderCardapioGrid('cardapio-comum-list', false);
+                renderBotoesGeracaoQR('qr-generator-container', null);
+            }
+            lucide.createIcons();
+        }
+
+        function logout() { localStorage.removeItem('sessao_ativa'); location.reload(); }
+
+        // --- SISTEMA DE CARDÁPIO ---
+        function renderCardapioGrid(containerId, isEditableAdmin) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            
+            Object.keys(dbCache.cardapio).forEach(id => {
+                const d = dbCache.cardapio[id];
+                if (isEditableAdmin && edicaoCardapioAtiva) {
+                    container.innerHTML += `
+                        <div class="min-w-[280px] bg-emerald-50 p-4 rounded-2xl border border-emerald-200">
+                            <p class="font-bold text-emerald-800 mb-3 border-b border-emerald-200 pb-1">${d.dia}</p>
+                            <div class="space-y-3">
+                                <div><label class="text-[10px] uppercase font-bold text-slate-500">Manhã</label><input id="edit-m-${id}" value="${d.m}" class="w-full text-xs p-2 rounded-lg border focus:ring-1 outline-none mt-1"></div>
+                                <div><label class="text-[10px] uppercase font-bold text-slate-500">Almoço</label><textarea id="edit-a-${id}" class="w-full text-xs p-2 rounded-lg border focus:ring-1 outline-none mt-1 min-h-[60px]">${d.a}</textarea></div>
+                                <div><label class="text-[10px] uppercase font-bold text-slate-500">Tarde</label><input id="edit-t-${id}" value="${d.t}" class="w-full text-xs p-2 rounded-lg border focus:ring-1 outline-none mt-1"></div>
+                            </div>
+                        </div>`;
+                } else {
+                    container.innerHTML += `
+                        <div class="min-w-[250px] bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
+                            <p class="font-bold text-slate-800 border-b border-slate-100 mb-3 pb-2">${d.dia}</p>
+                            <p class="text-xs mb-2 leading-relaxed"><span class="font-black text-blue-600 block mb-0.5">Manhã:</span> <span class="text-slate-600">${d.m}</span></p>
+                            <p class="text-xs mb-2 leading-relaxed"><span class="font-black text-orange-600 block mb-0.5">Almoço:</span> <span class="text-slate-600">${d.a}</span></p>
+                            <p class="text-xs leading-relaxed"><span class="font-black text-purple-600 block mb-0.5">Tarde:</span> <span class="text-slate-600">${d.t}</span></p>
+                        </div>`;
+                }
+            });
+            
+            if (isEditableAdmin && edicaoCardapioAtiva) {
+                container.innerHTML += `<div class="min-w-[150px] flex items-center justify-center p-4"><button onclick="salvarCardapioNuvem()" class="bg-emerald-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-emerald-700 shadow-lg flex items-center gap-2"><i data-lucide="cloud-upload" class="w-5 h-5"></i> Guardar na Nuvem</button></div>`;
+            }
+            lucide.createIcons();
+        }
+
+        function toggleEdicaoCardapio() {
+            edicaoCardapioAtiva = !edicaoCardapioAtiva;
+            document.querySelectorAll(".btn-edit-text-class, #btn-edit-text").forEach(el => el.innerText = edicaoCardapioAtiva ? "Desabilitar Edição" : "Habilitar Edição");
+            atualizarViewsPeloRole();
+        }
+
+        async function salvarCardapioNuvem() {
+            Object.keys(dbCache.cardapio).forEach(id => {
+                dbCache.cardapio[id].m = document.getElementById(`edit-m-${id}`).value;
+                dbCache.cardapio[id].a = document.getElementById(`edit-a-${id}`).value;
+                dbCache.cardapio[id].t = document.getElementById(`edit-t-${id}`).value;
+            });
+
+            const valoresPlanilha = [['ID', 'Dia da Semana', 'Manhã', 'Almoço', 'Tarde']];
+            Object.keys(dbCache.cardapio).forEach(id => {
+                const c = dbCache.cardapio[id];
+                valoresPlanilha.push([id, c.dia, c.m, c.a, c.t]);
+            });
+
+            showLoader("A guardar cardápio na nuvem...");
+            const res = await apiPost({ acao: 'salvar_cardapio', tabela: 'Cardapio', valores: valoresPlanilha });
+            hideLoader();
+
+            if(res.sucesso) { showToast("Cardápio sincronizado!", "success"); toggleEdicaoCardapio(); }
+            else showToast("Erro ao guardar na nuvem.", "error");
+        }
+
+        // --- SISTEMA DE QR CODE ---
+        function renderBotoesGeracaoQR(containerId, displayAreaId) {
+            const container = document.getElementById(containerId);
+            container.innerHTML = '';
+            const hoje = getHoje();
+
+            Object.keys(turnosInfo).forEach(turno => {
+                const info = turnosInfo[turno];
+                const registroGerado = dbCache.gerados.find(r => String(r.id) === String(currentUser.ident) && r.turno === turno && r.data === hoje);
+                const jaGerou = !!registroGerado;
+                
+                if(displayAreaId) {
+                    const btnClass = jaGerou ? `bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100 shadow-sm` : `bg-white text-${info.color}-600 border-${info.color}-200 hover:bg-${info.color}-50 shadow-sm`;
+                    container.innerHTML += `
+                        <button onclick="${jaGerou ? `mostrarQRCache('${turno}', '${displayAreaId}')` : `gerarQRDiretoria('${turno}', '${displayAreaId}')`}" class="flex flex-col items-center justify-center p-3 rounded-xl border ${btnClass} transition h-full text-center">
+                            <i data-lucide="${info.icon}" class="w-6 h-6 mb-1 ${jaGerou ? 'text-emerald-500' : `text-${info.color}-500`}"></i>
+                            <span class="text-xs font-bold">${info.label}</span>
+                            ${jaGerou ? '<span class="text-[9px] mt-1 text-emerald-600 font-bold uppercase"><i data-lucide="check" class="inline w-3 h-3"></i> Ver Ticket</span>' : ''}
+                        </button>`;
+                } else {
+                    container.innerHTML += `
+                        <div class="bg-${info.color}-50 p-6 rounded-3xl border border-${info.color}-100 flex flex-col items-center justify-between h-full">
+                            <div class="flex flex-col items-center">
+                                <div class="bg-${info.color}-100 p-3 rounded-full mb-3"><i data-lucide="${info.icon}" class="text-${info.color}-600 w-6 h-6"></i></div>
+                                <h4 class="font-black text-${info.color}-900 text-lg">${info.label}</h4>
+                            </div>
+                            ${jaGerou 
+                                ? `<div class="mt-4 bg-white p-4 rounded-xl border-2 border-emerald-500 w-full text-center shadow-inner flex flex-col items-center">
+                                     <p class="text-emerald-600 font-bold text-sm flex items-center justify-center gap-1 mb-2"><i data-lucide="check-circle-2"></i> Ticket Ativo</p>
+                                     <div id="qr-box-ativo-${turno}" class="bg-white p-1 rounded-lg"></div>
+                                   </div>`
+                                : `<div class="w-full mt-auto pt-4">
+                                     <button id="btn-gen-${turno}" onclick="gerarQRComum('${turno}', 'qr-box-${turno}', 'btn-gen-${turno}')" class="bg-${info.color}-600 text-white px-6 py-3 rounded-xl font-bold shadow-md hover:bg-${info.color}-700 transition w-full flex justify-center items-center gap-2"><i data-lucide="qr-code"></i> Gerar Ticket</button>
+                                     <div id="qr-box-${turno}" class="bg-white p-2 rounded-xl hidden w-full flex-col items-center justify-center border-2 border-${info.color}-200"></div>
+                                   </div>`
+                            }
+                        </div>`;
+                }
+            });
+            lucide.createIcons();
+
+            // Renderizar na carga
+            if(!displayAreaId) {
+                Object.keys(turnosInfo).forEach(turno => {
+                    const registroGerado = dbCache.gerados.find(r => String(r.id) === String(currentUser.ident) && r.turno === turno && r.data === hoje);
+                    if(registroGerado) {
+                        new QRCode(document.getElementById(`qr-box-ativo-${turno}`), { text: JSON.stringify(registroGerado), width: 130, height: 130, colorDark : "#0f172a", correctLevel: QRCode.CorrectLevel.M });
+                    }
+                });
+            }
+        }
+
+        async function registrarERenderizarQR(turno, containerElement) {
+            const hoje = getHoje();
+            if(dbCache.gerados.some(r => String(r.id) === String(currentUser.ident) && r.turno === turno && r.data === hoje)) {
+                showToast("Já gerou o QR Code para esta refeição hoje.", "error"); return false;
+            }
+
+            const dataHora = new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+            const dataQR = { id: currentUser.ident, turno, data: hoje, hora: dataHora, role: currentUser.role };
+            
+            containerElement.innerHTML = '';
+            new QRCode(containerElement, { text: JSON.stringify(dataQR), width: 150, height: 150, colorDark : "#0f172a", correctLevel: QRCode.CorrectLevel.M });
+            
+            dbCache.gerados.push(dataQR);
+            apiPost({ acao: 'inserir', tabela: 'Gerados', valores: [dataQR.id, dataQR.turno, dataQR.data, dataQR.hora, dataQR.role] }).then(res => { if(!res.sucesso) console.error("Erro nuvem"); });
+            
+            showToast("QR Code Gerado com Sucesso!", "success");
+            return true;
+        }
+
+        function gerarQRComum(turno, boxId, btnId) {
+            const box = document.getElementById(boxId);
+            const btn = document.getElementById(btnId);
+            
+            btn.classList.add('hidden');
+            box.classList.remove('hidden'); box.style.display = 'flex';
+            
+            setTimeout(() => {
+                registrarERenderizarQR(turno, box).then(sucesso => {
+                    if(!sucesso) { btn.classList.remove('hidden'); box.classList.add('hidden'); box.style.display = 'none'; }
+                });
+            }, 50);
+        }
+
+        function gerarQRDiretoria(turno, displayAreaId) {
+            const display = document.getElementById(displayAreaId);
+            const info = turnosInfo[turno];
+            display.innerHTML = `<div class="flex flex-col items-center fade-in"><p class="font-bold text-${info.color}-700 mb-3 uppercase text-sm">${info.label}</p><div id="temp-qr-box" class="bg-white p-2 rounded-xl border border-slate-200"></div></div>`;
+            registrarERenderizarQR(turno, document.getElementById('temp-qr-box')).then(suc => {
+                if(suc) renderBotoesGeracaoQR('diretor-qr-buttons', 'diretor-qr-display');
+            });
+        }
+
+        function mostrarQRCache(turno, displayAreaId) {
+            const display = document.getElementById(displayAreaId);
+            const info = turnosInfo[turno];
+            const hoje = getHoje();
+            const registroGerado = dbCache.gerados.find(r => String(r.id) === String(currentUser.ident) && r.turno === turno && r.data === hoje);
+            
+            if(registroGerado) {
+                display.innerHTML = `<div class="flex flex-col items-center fade-in"><p class="font-bold text-emerald-600 mb-3 uppercase text-sm flex items-center gap-1"><i data-lucide="check-circle-2" class="w-4 h-4"></i> ${info.label} (Ativo)</p><div id="temp-qr-box" class="bg-white p-2 rounded-xl border border-emerald-200"></div></div>`;
+                new QRCode(document.getElementById('temp-qr-box'), { text: JSON.stringify(registroGerado), width: 150, height: 150, colorDark : "#0f172a", correctLevel: QRCode.CorrectLevel.M });
+                lucide.createIcons();
+            }
+        }
+
+        // --- DIRETORIA ---
+        function renderAprovacoesPendentes() {
+            const containerAlunos = document.getElementById('lista-aprovacoes-alunos');
+            const containerStaff = document.getElementById('lista-aprovacoes-staff');
+            
+            const pendentes = dbCache.usuarios.filter(u => u.status === 'pendente');
+            const pAlunos = pendentes.filter(u => u.role === 'aluno');
+            const pStaff = pendentes.filter(u => u.role === 'staff');
+
+            const emptyState = (msg) => `<div class="text-center p-4 text-slate-400 text-xs font-medium bg-slate-50 rounded-xl border border-dashed border-slate-200">${msg}</div>`;
+            containerAlunos.innerHTML = pAlunos.length ? pAlunos.map(renderAprovacaoCard).join('') : emptyState("Nenhum aluno pendente.");
+            containerStaff.innerHTML = pStaff.length ? pStaff.map(renderAprovacaoCard).join('') : emptyState("Nenhum servidor pendente.");
+            lucide.createIcons();
+        }
+
+        function renderAprovacaoCard(u) {
+            const detalhe = u.role === 'aluno' ? `Turma: ${u.turma}` : `Cargo: ${u.cargo}`;
+            return `
+                <div class="flex justify-between items-center p-3 bg-slate-50 border border-slate-200 rounded-xl">
+                    <div><p class="font-bold text-slate-800 text-sm">${u.nome}</p><p class="text-xs text-slate-500">${u.ident} | ${detalhe}</p></div>
+                    <div class="flex gap-2">
+                        <button onclick="mudarStatusCadastro('${u.ident}', 'aprovado')" class="bg-emerald-100 text-emerald-700 p-2 rounded-lg"><i data-lucide="check" class="w-4 h-4"></i></button>
+                        <button onclick="mudarStatusCadastro('${u.ident}', 'rejeitado')" class="bg-red-100 text-red-700 p-2 rounded-lg"><i data-lucide="x" class="w-4 h-4"></i></button>
+                    </div>
+                </div>`;
+        }
+
+        async function mudarStatusCadastro(id, novoStatus) {
+            showLoader("A atualizar status na nuvem...");
+            const res = await apiPost({ acao: 'atualizar_status', tabela: 'Usuarios', identificador: id, novoStatus: novoStatus });
+            hideLoader();
+
+            if(res.sucesso) {
+                const index = dbCache.usuarios.findIndex(u => String(u.ident) === String(id));
+                if(index > -1) {
+                    dbCache.usuarios[index].status = novoStatus;
+                    if(novoStatus === 'rejeitado') dbCache.usuarios.splice(index, 1);
+                    showToast(`Registo ${novoStatus}!`, 'success');
+                    renderAprovacoesPendentes();
+                }
+            } else showToast("Erro ao comunicar com a Nuvem.", "error");
+        }
+
+        function renderMonitoramentoDiretoria() {
+            const tbody = document.getElementById('monitoramento-list');
+            const filtroSelect = document.getElementById('filtro-turma-monitoramento');
+            const alunos = dbCache.usuarios.filter(u => u.role === 'aluno' && u.status === 'aprovado');
+            
+            const turmas = [...new Set(alunos.map(a => a.turma))].sort();
+            if(filtroSelect.options.length <= 1) turmas.forEach(t => filtroSelect.innerHTML += `<option value="${t}">${t}</option>`);
+
+            const turmaFiltrada = filtroSelect.value;
+            const alunosMostrar = turmaFiltrada === 'todas' ? alunos : alunos.filter(a => a.turma === turmaFiltrada);
+
+            const hoje = getHoje();
+            const reqsHoje = dbCache.gerados.filter(g => g.data === hoje);
+            const scansHoje = dbCache.escaneados.filter(s => s.data === hoje);
+
+            tbody.innerHTML = '';
+            if(alunosMostrar.length === 0) { tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400">Sem alunos.</td></tr>`; return; }
+
+            const getDot = (idAluno, turno) => {
+                const comeu = scansHoje.some(e => String(e.id) === String(idAluno) && e.turno === turno);
+                const gerou = reqsHoje.some(r => String(r.id) === String(idAluno) && r.turno === turno);
+                if (comeu) return `<div class="w-4 h-4 rounded-full bg-emerald-500 mx-auto shadow-sm border border-emerald-600"></div>`;
+                if (gerou) return `<div class="w-4 h-4 rounded-full bg-orange-400 mx-auto shadow-sm border border-orange-500"></div>`;
+                return `<div class="w-4 h-4 rounded-full bg-slate-200 mx-auto border border-slate-300"></div>`;
+            };
+
+            alunosMostrar.sort((a,b) => a.nome.localeCompare(b.nome)).forEach(aluno => {
+                tbody.innerHTML += `<tr class="hover:bg-slate-50 transition"><td class="p-3 font-medium text-slate-800">${aluno.nome}</td><td class="p-3 text-xs text-slate-500 bg-slate-50 font-bold">${aluno.turma}</td><td class="p-3 border-l border-slate-100">${getDot(aluno.ident, 'manha')}</td><td class="p-3 border-l border-slate-100">${getDot(aluno.ident, 'almoco')}</td><td class="p-3 border-l border-slate-100">${getDot(aluno.ident, 'tarde')}</td></tr>`;
+            });
+        }
+
+        // --- CANTINA E SCANNER ---
+        function atualizarEstatisticasCantina() {
+            const hoje = getHoje();
+            const reqsHoje = dbCache.gerados.filter(g => g.data === hoje);
+            const scansHoje = dbCache.escaneados.filter(s => s.data === hoje);
+
+            document.getElementById('stat-total-alunos').innerText = dbCache.usuarios.filter(u => u.role === 'aluno' && u.status === 'aprovado').length;
+
+            ['manha', 'almoco', 'tarde'].forEach(t => {
+                const reqs = reqsHoje.filter(r => r.turno === t);
+                const scans = scansHoje.filter(s => s.turno === t);
+                document.getElementById(`stat-${t.charAt(0)}-ok`).innerText = scans.length;
+                document.getElementById(`stat-${t.charAt(0)}-pending`).innerText = reqs.length - scans.length;
+            });
+            renderFilasCantina(reqsHoje, scansHoje);
+        }
+
+        function renderFilasCantina(reqsHoje, scansHoje) {
+            const tbodyAlunos = document.getElementById('fila-alunos-list');
+            const tbodyStaff = document.getElementById('fila-staff-list');
+            tbodyAlunos.innerHTML = ''; tbodyStaff.innerHTML = '';
+
+            const sortedRegistros = [...reqsHoje].reverse();
+
+            sortedRegistros.forEach(r => {
+                const user = dbCache.usuarios.find(u => String(u.ident) === String(r.id));
+                if(!user) return;
+
+                const isEscaneado = scansHoje.some(s => String(s.id) === String(r.id) && s.turno === r.turno);
+                const infoTurno = turnosInfo[r.turno];
+                
+                const tr = `
+                    <tr class="hover:bg-slate-50 border-b border-slate-50 last:border-0 ${isEscaneado ? 'opacity-60' : ''}">
+                        <td class="p-3"><p class="font-bold text-slate-800">${user.nome}</p><p class="text-[10px] text-slate-500 font-bold uppercase">${user.turma || user.cargo || user.role}</p></td>
+                        <td class="p-3"><span class="bg-${infoTurno.color}-100 text-${infoTurno.color}-700 px-2 py-1 rounded text-xs font-bold uppercase">${infoTurno.label}</span><div class="text-[10px] text-slate-400 mt-1"><i data-lucide="clock" class="inline w-3 h-3 mr-0.5"></i>${r.hora}</div></td>
+                        <td class="p-3 text-right">${isEscaneado ? `<span class="text-emerald-500 font-bold text-xs"><i data-lucide="check-circle" class="inline w-4 h-4"></i></span>` : `<span class="bg-orange-100 text-orange-600 px-2 py-1 rounded-lg text-[10px] font-bold uppercase animate-pulse">Aguardando</span>`}</td>
+                    </tr>`;
+
+                if(user.role === 'aluno') tbodyAlunos.innerHTML += tr;
+                else tbodyStaff.innerHTML += tr;
+            });
+            lucide.createIcons();
+        }
+
+        function abrirScannerModal(targetRoleType) {
+            scannerTargetRole = targetRoleType;
+            const modal = document.getElementById('modal-scanner');
+            document.getElementById('scanner-modal-title').innerHTML = targetRoleType === 'aluno' ? '<i data-lucide="users" class="text-emerald-400"></i> Lendo Alunos' : '<i data-lucide="briefcase" class="text-indigo-400"></i> Lendo Equipa';
+            document.getElementById('scanner-resultado').classList.add('hidden');
+            modal.classList.remove('hidden'); modal.style.display = 'flex';
+
+            html5QrCode = new Html5Qrcode("reader-video");
+            document.getElementById('scanner-loader').classList.remove('hidden');
+
+            html5QrCode.start({ facingMode: "environment" }, { fps: 30, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 }, onScanSuccess)
+                .then(() => document.getElementById('scanner-loader').classList.add('hidden'))
+                .catch(err => document.getElementById('scanner-loader').innerHTML = "Erro na câmara.");
+            lucide.createIcons();
+        }
+
+        function fecharScannerModal() {
+            const modal = document.getElementById('modal-scanner');
+            if(html5QrCode) {
+                html5QrCode.stop().then(() => { html5QrCode.clear(); modal.classList.add('hidden'); modal.style.display = 'none'; atualizarEstatisticasCantina(); }).catch(err => modal.classList.add('hidden'));
+            } else modal.classList.add('hidden');
+        }
+
+        function onScanSuccess(decodedText) {
+            html5QrCode.pause();
+            try {
+                const data = JSON.parse(decodedText);
+                const hoje = getHoje();
+                if(data.data !== hoje) throw "QR Code expirado (Data incorreta)!";
+
+                const isUserAluno = (data.role === 'aluno');
+                if (scannerTargetRole === 'aluno' && !isUserAluno) throw "Câmara Errada! Use o botão 'Ler Equipa'.";
+                if (scannerTargetRole === 'staff' && isUserAluno) throw "Câmara Errada! Use o botão 'Ler Alunos'.";
+
+                if(dbCache.escaneados.find(s => String(s.id) === String(data.id) && s.turno === data.turno && s.data === hoje)) {
+                    exibirResultadoScanModal(data.id, "JÁ ENTREGUE HOJE", "red", turnosInfo[data.turno].label);
+                } else {
+                    const dataHora = new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
+                    dbCache.escaneados.push({ id: data.id, turno: data.turno, data: hoje, hora: dataHora });
+                    exibirResultadoScanModal(data.id, "LIBERADO!", "emerald", turnosInfo[data.turno].label);
+                    apiPost({ acao: 'inserir', tabela: 'Escaneados', valores: [data.id, data.turno, hoje, dataHora] });
+                }
+            } catch(e) { exibirResultadoScanModal(null, typeof e === 'string' ? e : "QR Inválido", "orange", ""); }
+
+            setTimeout(() => { document.getElementById('scanner-resultado').classList.add('hidden'); if(html5QrCode.getState() === 2) html5QrCode.resume(); }, 2500);
+        }
+
+        function exibirResultadoScanModal(idUsuario, mensagem, corTema, nomeRefeicao) {
+            const resBox = document.getElementById('scanner-resultado');
+            const foto = document.getElementById('scan-foto'), nome = document.getElementById('scan-nome'), detalhe = document.getElementById('scan-detalhe'), badge = document.getElementById('scan-badge');
+            resBox.classList.remove('hidden'); resBox.className = `absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-11/12 max-w-sm bg-white p-6 rounded-3xl text-center shadow-2xl z-20 fade-in border-4 border-${corTema}-500`;
+
+            if(idUsuario) {
+                const user = dbCache.usuarios.find(u => String(u.ident) === String(idUsuario));
+                foto.src = user ? user.foto : ''; foto.classList.remove('hidden');
+                nome.innerText = user ? user.nome : 'Desconhecido';
+                detalhe.innerHTML = `<span class="font-bold text-${corTema}-600 uppercase text-xs border border-${corTema}-200 bg-${corTema}-50 px-2 py-1 rounded-lg">${nomeRefeicao}</span><br>ID: ${idUsuario} | ${user.turma || user.cargo || user.role}`;
+            } else { foto.classList.add('hidden'); nome.innerText = 'Atenção'; detalhe.innerText = ''; }
+
+            badge.innerText = mensagem; badge.className = `mt-4 text-sm font-black py-3 px-4 rounded-xl text-white block w-full uppercase tracking-wider bg-${corTema}-600 shadow-md`;
+        }
+    </script>
+</body>
+</html>
