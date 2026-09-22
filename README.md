@@ -1,6 +1,6 @@
 # 🏫 Sistema de Cantina Escolar 360
 
-**🔗 [Acessar o Sistema Online](https://luziadasilvareis.github.io/Cantina-Escolar/)** 
+**🔗 [Acessar o Sistema Online](https://melryandhieksy.github.io/Cantina-Escolar/)** 
 Um sistema web moderno e responsivo criado para a gestão inteligente de refeiçõeescolares (Lanche da Manhã, Almoço e Lanche da Tarde). Desenvolvido para eliminar o desperdício de comida e evitar a duplicação de refeições, o projeto utiliza a geração e leitura de **QR Codes** com armazenamento na nuvem em tempo real através do **Google Sheets (Serverless)**.
 
 ---
